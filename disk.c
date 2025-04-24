@@ -19,6 +19,9 @@ struct disk {
 	struct flash_drive *flash_drive;
 	int nreads;
 	int nwrites;
+	int *dtf;			// disk_to_flash, dtf[8] = 12 means disk block 8 is currently in flash page 12
+	int *flash_pages;	// tracks the state of each flash page
+	int *flash_blocks;	// tracks the state of each flash block
 };
 
 /*
@@ -32,6 +35,9 @@ struct disk * disk_create( struct flash_drive *f, int disk_blocks )
 	d->flash_drive = f;
 	d->nreads = 0;
 	d->nwrites = 0;
+	d->dtf = calloc(disk_blocks, sizeof(int));
+	d->flash_pages = calloc(flash_npages(f), sizeof(int));
+	d->flash_blocks = calloc(flash_npages(f) / flash_npages_per_block(f), sizeof(int));
 	return d;
 }
 
