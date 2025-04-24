@@ -26,4 +26,6 @@ void disk_report( struct disk *d );
 /* Close the flash translation layer. */
 void disk_close( struct disk *d );
 
+void garbage_collection( struct disk *d );
+
 #endif
