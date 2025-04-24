@@ -130,4 +130,18 @@ void garbage_collection( struct disk *d )
 	// update DS
 	// erase the block
 	// mark it as copy block
+
+	// lets first implement just a single block erase
+	int i;
+	for (i = 0; i < d->nflash_blocks; i++){
+		if (d->flash_blocks[i] == GARBAGE) break;
+	}
+
+	// found a garbage block
+	int j;
+	for (j = i * flash_npages_per_block(d->flash_drive); j < (i + 1) * flash_npages_per_block(d->flash_drive); j++) { // looping over each page in the garbage block
+		if (d->flash_pages[j] == USED) {
+			
+		}
+	}
 }
