@@ -33,8 +33,8 @@ Go ahead and add or change things here as needed.
 */
 
 // helpful enums for data structure tracking
-enum {STALE = -2, FREE = -1}; // used for marking flash_pages state, any number >= 0 corresponds to a disk block
-enum {COPY = -1, EMPTY = 0, GARBAGE = 1}; // used for marking flash_blocks state
+enum {STALE = -2, EMPTY = -1}; // used for marking flash_pages state, any number >= 0 corresponds to a disk block
+enum {COPY = -1, FREE = 0, USED = 1, GARBAGE = 2}; // used for marking flash_blocks state
 
 
 struct disk * disk_create( struct flash_drive *f, int disk_blocks )
@@ -54,7 +54,7 @@ struct disk * disk_create( struct flash_drive *f, int disk_blocks )
 	d->flash_pages = calloc(flash_npages(f), sizeof(int));
 	// mark all flash pages as unused
 	for (int i = 0; i < flash_npages(f); i++) {
-		d->flash_pages[i] = FREE;
+		d->flash_pages[i] = EMPTY;
 	}
 	d->flash_blocks = calloc(flash_npages(f) / flash_npages_per_block(f), sizeof(int));
 	d->flash_blocks[flash_npages(f) / flash_npages_per_block(f) - 1] = -1; // mark the last flash block for copying
@@ -95,25 +95,25 @@ int disk_write( struct disk *d, int disk_block, const char *data )
 
 	// look for open flash pages
 	// TO DO: possibly make this more random for wear leveling
-	for (int i = 0; i < d->nflash_pages; i++) {
-		// need to keep a flash block open for copying, so do not write to the one currently marked for copying
-		if(d->flash_blocks[i / flash_npages_per_block(d->flash_drive)] == COPY) {
-			printf("Do not write to flash page %d, it is in the copy block\n", i);
-			continue;
+	while(1) {
+		for (int i = 0; i < d->nflash_pages; i++) {
+			// need to keep a flash block open for copying, so do not write to the one currently marked for copying
+			if(d->flash_blocks[i / flash_npages_per_block(d->flash_drive)] == COPY) {
+				printf("Do not write to flash page %d, it is in the copy block\n", i);
+				continue;
+			}
+			if(d->flash_pages[i] == EMPTY) {
+				// found empty flash page, write to it
+				// update data structures
+				d->dtf[disk_block] = i;
+				d->flash_pages[i] = disk_block;
+				flash_write(d->flash_drive,i,data);
+				d->nwrites++;
+				return 0;
+			}
 		}
-		if(d->flash_pages[i] == FREE) {
-			// found empty flash page, write to it
-			// update data structures
-			d->dtf[disk_block] = i;
-			d->flash_pages[i] = disk_block;
-			flash_write(d->flash_drive,i,data);
-			d->nwrites++;
-			return 0;
-		}
+		garbage_collection(d);
 	}
-
-	garbage_collection(d);
-	return 1;
 }
 
 /*
@@ -136,39 +136,70 @@ void garbage_collection( struct disk *d )
 	// erase the block
 	// mark it as copy block
 
-	// lets first implement just a single block erase
-
 	// find the garbage block to clean
-	int garbage_block = -1;
-	for (int i = 0; i < d->nflash_blocks; i++) {
-		if (d->flash_blocks[i] == GARBAGE) {
-			garbage_block = i;
-			break;
+	while(1) {
+		int garbage_block = -1;
+		for (int i = 0; i < d->nflash_blocks; i++) {
+			if (d->flash_blocks[i] == GARBAGE) {
+				garbage_block = i;
+				break;
+			}
 		}
-	}
-	if (garbage_block == -1) {
-		printf("No garbage blocks found.\n");
-		return;
-	}
+		if (garbage_block == -1) {
+			printf("No more garbage blocks found.\n");
+			return;
+		}
 
-	// Find the copy block
-	int copy_block = -1;
-	for (int i = 0; i < d->nflash_blocks; i++) {
-		if (d->flash_blocks[i] == COPY) {
-			copy_block = i;
-			break;
+		// Find the copy block
+		int copy_block = -1;
+		for (int i = 0; i < d->nflash_blocks; i++) {
+			if (d->flash_blocks[i] == COPY) {
+				copy_block = i;
+				break;
+			}
 		}
-	}
-	if (copy_block == -1) {
-		printf("No copy block defined!\n");
-		return;
-	}
+		if (copy_block == -1) {
+			printf("No copy block defined!\n");
+			return;
+		}
 
-	// found a garbage block, copy pages to copy block
-	int j;
-	for (j = garbage_block * flash_npages_per_block(d->flash_drive); j < (garbage_block + 1) * flash_npages_per_block(d->flash_drive); j++) { // looping over each page in the garbage block
-		if (d->flash_pages[j] >= 0) {
-			
+		// found a garbage block, copy pages to copy block
+		int pages_per_block = flash_npages_per_block(d->flash_drive);
+		int start = garbage_block * pages_per_block;
+		int end = start + pages_per_block;
+
+		for (int j = start; j < end; j++) {
+			if (d->flash_pages[j] >= 0) {
+				int disk_block = d->flash_pages[j];
+
+				// Look for a free page in the copy block
+				for (int i = copy_block * pages_per_block; i < (copy_block + 1) * pages_per_block; i++) {
+					if (d->flash_pages[i] == EMPTY) {
+						char buf[DISK_BLOCK_SIZE];
+						flash_read(d->flash_drive, j, buf); // read the data into buffer
+						d->nreads++;
+
+						flash_write(d->flash_drive, i, buf); // write the data to the new location
+						d->nwrites++;
+
+						d->dtf[disk_block] = i;
+						d->flash_pages[i] = disk_block;
+						d->flash_pages[j] = EMPTY;
+						break;
+					}
+				}
+			}
 		}
+
+		// do erasing
+		flash_erase(d->flash_drive, garbage_block);
+		for (int i = start; i < end; i++) {
+			// marking the garbage block as emptied
+			d->flash_pages[i] = EMPTY;
+		}
+		d->flash_blocks[copy_block] = USED;
+		d->flash_blocks[garbage_block] = COPY; // newly erased block becomes the copy block
+
+		printf("Garbage collection complete. Block %d erased and set as new copy block.\n", garbage_block);
 	}
 }
