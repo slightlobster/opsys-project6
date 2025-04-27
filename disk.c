@@ -94,7 +94,6 @@ int disk_write( struct disk *d, int disk_block, const char *data )
 	}
 
 	// look for open flash pages
-	// TO DO: possibly make this more random for wear leveling
 	while(1) {
 		for (int i = 0; i < d->nflash_pages; i++) {
 			// need to keep a flash block open for copying, so do not write to the one currently marked for copying
@@ -164,7 +163,7 @@ void garbage_collection( struct disk *d )
 		}
 
 		// found a garbage block, copy pages to copy block
-		int pages_per_block = flash_npages_per_block(d->flash_drive);
+		int pages_per_block = flash_npages_per_block(d->flash_drive); // avoid calling this function a bunch
 		int start = garbage_block * pages_per_block;
 		int end = start + pages_per_block;
 
@@ -177,10 +176,8 @@ void garbage_collection( struct disk *d )
 					if (d->flash_pages[i] == EMPTY) {
 						char buf[DISK_BLOCK_SIZE];
 						flash_read(d->flash_drive, j, buf); // read the data into buffer
-						d->nreads++;
 
 						flash_write(d->flash_drive, i, buf); // write the data to the new location
-						d->nwrites++;
 
 						d->dtf[disk_block] = i;
 						d->flash_pages[i] = disk_block;
