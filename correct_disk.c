@@ -22,7 +22,6 @@ struct disk {
 	int ndisk_blocks; // keep track of number of disk blocks, flash pages, and flash blocks for easier use later
 	int nflash_pages;
 	int nflash_blocks;
-	int next_free_page; //added this to point where the next free page is - angel nnnnnnnnnnnnnnnnnnnnnnnnn
 	int *dtf;			// disk_to_flash, dtf[8] = 12 means disk block 8 is currently in flash page 12
 	int *flash_pages;	// tracks the state of each flash page
 	int *flash_blocks;	// tracks the state of each flash block
@@ -48,7 +47,6 @@ struct disk * disk_create( struct flash_drive *f, int disk_blocks )
 	d->nflash_pages = flash_npages(f);
 	d->nflash_blocks = flash_npages(f) / flash_npages_per_block(f);
 	d->dtf = malloc(disk_blocks * sizeof(int));
-	d->next_free_page = 0; //intialize -angel
 	// need to mark these invalid to start
 	for (int i = 0; i < disk_blocks; i++) {
 		d->dtf[i] = -1;
@@ -110,13 +108,10 @@ int disk_write( struct disk *d, int disk_block, const char *data )
 				d->flash_pages[i] = disk_block;
 				flash_write(d->flash_drive,i,data);
 				d->nwrites++;
-				d->next_free_page = i + 1; //nest one in line is the next page - angel
 				return 0;
 			}
 		}
 		garbage_collection(d);
-
-		d->next_free_page = 0; //after collection look from the start - angel
 	}
 }
 
