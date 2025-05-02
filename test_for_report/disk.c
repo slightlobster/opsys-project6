@@ -104,6 +104,7 @@ int disk_write( struct disk *d, int disk_block, const char *data )
 	
 			// skip copy block pages
 			if (d->flash_blocks[i / flash_npages_per_block(d->flash_drive)] == COPY) {
+				printf("Do not write to flash page %d, it is in the copy block\n", i);
 				continue;
 			}
 	
@@ -133,6 +134,8 @@ void disk_report( struct disk *d )
 
 void garbage_collection( struct disk *d )
 {
+	printf("Garbage collection started.\n");
+
 	// copy non-stale blocks to the copy block
 	// update DS
 	// erase the block

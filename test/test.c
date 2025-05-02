@@ -25,6 +25,7 @@ struct disk {
 	int *dtf;			// disk_to_flash, dtf[8] = 12 means disk block 8 is currently in flash page 12
 	int *flash_pages;	// tracks the state of each flash page
 	int *flash_blocks;	// tracks the state of each flash block
+	int *liveness;		// tracks operations since block last erased for wear leveling
 };
 
 /*
@@ -58,6 +59,7 @@ struct disk * disk_create( struct flash_drive *f, int disk_blocks )
 	}
 	d->flash_blocks = calloc(flash_npages(f) / flash_npages_per_block(f), sizeof(int));
 	d->flash_blocks[flash_npages(f) / flash_npages_per_block(f) - 1] = COPY; // mark the last flash block for copying
+	d->liveness = calloc(flash_npages(f) / flash_npages_per_block(f), sizeof(int));
 	return d;
 }
 
@@ -117,6 +119,7 @@ int disk_write( struct disk *d, int disk_block, const char *data )
 			}
 		}
 		garbage_collection(d);
+		static_wear_level(d);
 	}	
 }
 
@@ -166,7 +169,7 @@ void garbage_collection( struct disk *d )
 		return;
 	}
 
-	// found a garbage block, copy pages to copy block
+	// copy live pages to copy block
 	int pages_per_block = flash_npages_per_block(d->flash_drive); // avoid calling this function a bunch
 	int start = garbage_block * pages_per_block;
 	int end = start + pages_per_block;
@@ -200,4 +203,19 @@ void garbage_collection( struct disk *d )
 	}
 	d->flash_blocks[copy_block]  = NONE;
 	d->flash_blocks[garbage_block] = COPY; // newly erased block becomes the copy block
+
+	// tracking cycles since last erase
+	for (int i = 0; i < d->nflash_blocks; i++) {
+		if (d->flash_blocks[i] == COPY) d->liveness[i] = 0;
+		else d->liveness[i]++;
+	}
+}
+
+// checking for any long lived data that may make wear leveling bad
+void static_wear_level(struct disk *d) {
+	for (int i = 0; i < d->nflash_blocks; i++) {
+		if (d->liveness[i] > d->ndisk_blocks) {
+			
+		}
+	}
 }
